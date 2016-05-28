@@ -1,0 +1,156 @@
+#include "stdafx.h"
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+
+#include <opencv2/opencv.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include "kcftracker.hpp"
+using namespace cv;
+using namespace std;
+
+Rect box;
+bool getbox = false;
+bool drawbox = false;
+
+void mouseHandler(int event, int x, int y, int flags, void *param);
+int main(int argc, char* argv[]){
+
+	if (argc > 6) return -1;
+
+	bool HOG = true;
+	bool FIXEDWINDOW = false;
+	bool MULTISCALE = true;
+	bool SILENT = true;
+	bool LAB = false;
+	bool CAM = false;
+	string videoname;
+
+	for(int i = 0; i < argc; i++){
+		if ( strcmp (argv[i], "hog") == 0 )
+			HOG = true;
+		else if (strcmp(argv[i], "fixed_window") == 0)
+			FIXEDWINDOW = true;
+		else if ( strcmp (argv[i], "singlescale") == 0 )
+			MULTISCALE = false;
+		else if ( strcmp (argv[i], "show") == 0 )
+			SILENT = false;
+		else if ( strcmp (argv[i], "lab") == 0 ){
+			LAB = true;
+			HOG = true;
+		}
+		else if (strcmp(argv[i], "gray") == 0)
+			HOG = false;
+		else if (strcmp(argv[i], "camera") == 0)
+			CAM = true;
+		else videoname = string(argv[i]);
+	}
+	
+	// Create KCFTracker object
+	KCFTracker tracker(HOG, FIXEDWINDOW, MULTISCALE, LAB);
+
+	// Tracker results
+	Rect result;
+
+	// Write Results
+	ofstream resultsFile;
+	string resultsPath = "output.txt";
+	resultsFile.open(resultsPath);
+
+	// Frame counter
+	int nFrames = 0;
+	
+	VideoCapture cap;
+	if (CAM)
+		cap.open(0);
+	else 
+		cap.open(videoname);
+	
+	if (!cap.isOpened())
+	{
+		printf("fail to open video capture device\n");
+		return -1;
+	}
+
+	Mat frame,frametemp;
+	cap >> frame;
+	cvNamedWindow("KCF", CV_WINDOW_AUTOSIZE);
+	imshow("KCF", frame);
+	cvSetMouseCallback("KCF", mouseHandler, NULL);
+
+
+	while (!getbox)
+	{
+		if (CAM)
+			cap >> frame;
+		frame.copyTo(frametemp);
+		rectangle(frametemp, box, Scalar(0, 255, 255));
+		imshow("KCF", frametemp);
+		cvWaitKey(50);
+	}
+	 
+	
+
+	while (1)
+	{
+	
+		// First frame, give the groundtruth to the tracker
+		if (nFrames == 0) {
+			tracker.init(box, frame);
+			rectangle(frame, box, Scalar(0, 255, 255), 1, 8);
+			cout << box.x << "," << box.y << "," << box.width << "," << box.height << endl;
+		}
+		// Update
+		else{
+			result = tracker.update(frame);
+			rectangle(frame, Point(result.x, result.y), Point(result.x + result.width, result.y + result.height), Scalar(0, 255, 255), 1, 8);
+			cout << result.x << "," << result.y << "," << result.width << "," << result.height << endl;
+		}
+
+		nFrames++;
+
+		if (!SILENT){
+			imshow("KCF", frame);
+			waitKey(1);
+		}
+		cap >> frame;
+		
+	}
+
+
+
+	resultsFile.close();
+
+}
+
+void mouseHandler(int event, int x, int y, int flags, void *param)
+{
+	switch (event)
+	{
+
+	case CV_EVENT_MOUSEMOVE:
+		if (drawbox){
+			box.width = x - box.x;
+			box.height = y - box.y;
+		}
+		break;
+	case CV_EVENT_LBUTTONDOWN:
+		drawbox = true;
+		box = Rect(x, y, 0, 0);
+		break;
+	case CV_EVENT_LBUTTONUP:
+		drawbox = false;
+		if (box.width < 0){
+			box.x += box.width;
+			box.width *= -1;
+		}
+		if (box.height < 0){
+			box.y += box.height;
+			box.height *= -1;
+		}
+		getbox = true;
+		break;
+	}
+}
